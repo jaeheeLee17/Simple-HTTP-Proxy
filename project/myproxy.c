@@ -17,23 +17,82 @@ void error(char *msg) {
 	exit(1);
 }
 
-void open_clientfd(char *hostname, int port) {
-	return;
+void open_clientfd(char *hostname, int portno) {
+	int clientfd;
+	struct hostent *hp;
+	struct sockaddr_in serv_addr;
+
+	if ((clientfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		error("ERROR: Failed to make client_socket");
+		exit(1);
+	}
+
+	if ((hp = gethostbyname(hostname)) == NULL) {
+		error("ERROR: Getting hostname");
+		exit(1);
+	}
+	bzero((char *) &serv_addr, sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	bcopy((char *)hp->h_addr_list[0], (char *) &serv_addr.sin_addr.s_addr, hp->h_length);
+	serv_addr.sin_port = htons(portno);
+
+	if (connect(clientfd, (SA *) &serv_addr, sizeof(serv_addr)) < 0) {
+		error("ERROR: Connecting");
+		exit(1);
+	}
+
+	return clientfd;
 }
 
-void read_header(int fd, void *ptr, size_t bytes) {
-	return;
+void read_header(int fd, char *read_buf, size_t bytes) {
+	size_t bytes_left = bytes;
+	ssize_t read_bytes;
+	char *rbuf = read_buf;
+
+	while (bytes_left > 0) {
+		if ((read_bytes = read(fd, rbuf, bytes_left)) < 0) {
+			if (errno == EINTR) {
+				read_bytes = 0;
+			} else {
+				error("ERROR: read buffer");
+				exit(1);
+			}
+		} else if (read_bytes == 0) {
+			break;
+		}
+		bytes_left -= read_bytes;
+		rbuf += read_bytes;
+	}
+
+	return (bytes - bytes_left);
 }
 
-void write_header(int fd, void *buf, size_t bytes) {
-	return;
+void write_header(int fd, char *write_buf, size_t bytes) {
+	size_t bytes_left = bytes;
+	ssize_t write_bytes;
+	char *wbuf = write_buf;
+
+	while (bytes_left > 0) {
+		if ((write_bytes = write(fd, wbuf, bytes_left)) < 0) {
+			if (errno == EINTR) {
+				write_bytes = 0;
+			} else {
+				error("ERROR: write buffer");
+				exit(1);
+			}
+		}
+		bytes_left -= write_bytes;
+		wbuf += write_bytes;
+	}
+
+	return bytes;
 }
 
 void proxy_handler(int cli_sockfd) {
 	char proxy_header[BUF_SIZE];
 	char buffer[BUF_SIZE];
 	int serverfd, clientfd, n;
-	
+
 	recv(cli_sockfd, buffer, BUF_SIZE, 0);
 
 	printf("[Proxy Request]\n%s\n", buffer);
@@ -123,12 +182,12 @@ int main(int argc, char *argv[]) {
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = INADDR_ANY;
 	serv_addr.sin_port = htons(portno);
-	
+
 	if (bind(serv_sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
 		error("ERROR: Binding\n");
 		exit(1);
 	}
-	
+
 	if (listen(serv_sockfd, 5) < 0) {
 		error("ERROR: Listening\n");
 		exit(1);
@@ -138,7 +197,7 @@ int main(int argc, char *argv[]) {
 
 	while (1) {
 		printf("Waiting Connections...\n");
-		
+
 		clilen = sizeof(cli_addr);
 		cli_sockfd = accept(serv_sockfd, (struct sockaddr *) &cli_addr, &clilen);
 		if (cli_sockfd < 0) {
@@ -160,5 +219,3 @@ int main(int argc, char *argv[]) {
 		}
 	}
 }
-
-
